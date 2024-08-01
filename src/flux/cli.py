@@ -92,6 +92,19 @@ def parse_prompt(options: SamplingOptions) -> SamplingOptions | None:
         options.prompt = prompt
     return options
 
+def nncf_send_to_device(model, device="cuda"):
+    for child in model.children():
+        if child.__class__.__name__ == "WeightsDecompressor":
+            child.scale = child.scale.to(device)
+            child.zero_point = child.zero_point.to(device)
+        nncf_send_to_device(child)
+
+def nncf_compress_model(model, device="cuda"):
+    import nncf # pip install nncf==2.7.0
+    model.eval()
+    model = nncf.compress_weights(model)
+    nncf_send_to_device(model, device=device)
+    return model
 
 @torch.inference_mode()
 def main(
@@ -158,6 +171,7 @@ def main(
     t5 = load_t5(torch_device, max_length=256 if name == "flux-schnell" else 512)
     clip = load_clip(torch_device)
     model = load_flow_model(name, device="cpu" if offload else torch_device)
+    model = nncf_compress_model(model, device=torch_device)
     ae = load_ae(name, device="cpu" if offload else torch_device)
 
     rng = torch.Generator(device="cpu")
